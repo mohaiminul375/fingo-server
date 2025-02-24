@@ -22,7 +22,25 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 });
+// Authentication middleware
+const authenticateUser = (req, res, next) => {
+    const token = req.headers.authorization?.split(" ")[1]; // Extract token from Authorization header
+    console.log(token)
+    if (!token) {
+        return res.status(401).json({ error: 'Access denied' });
+    }
 
+    try {
+        // Decode and verify the token
+        const verified = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = verified;
+        console.log(verified)
+
+        next();
+    } catch (err) {
+        res.status(403).json({ error: 'Unauthorized: Invalid token' });
+    }
+};
 async function run() {
     try {
         // DB collection 
@@ -164,6 +182,25 @@ async function run() {
             }
 
         })
+        // get user info
+        app.get('/user', authenticateUser, async (req, res) => {
+            try {
+                // Find the user by email (from the decoded JWT)
+                const user = await usersCollections.findOne({ email: req.user.email });
+                console.log(user);
+
+                if (!user) {
+                    return res.status(404).json({ message: "User not found" });
+                }
+                // Remove password from the user object
+                const { password, ...userWithoutPin } = user;
+
+                res.status(200).json({ user: userWithoutPin });
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: "Error fetching user data" });
+            }
+        });
 
         // Connect the client to the server	(optional starting in v4.7)
         // await client.connect();
