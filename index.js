@@ -4,6 +4,7 @@ const app = express();
 const port = 5000;
 const bcrypt = require('bcrypt');
 require('dotenv').config();
+const jwt = require('jsonwebtoken');
 const cors = require('cors');
 // Middleware & Cors
 app.use(express.json());
@@ -26,9 +27,6 @@ async function run() {
     try {
         // DB collection 
         const usersCollections = client.db('fingo-mfs').collection('all-users');
-
-
-
         // Users management and Authentication
         // Create a User
         app.post('/create-user', async (req, res) => {
@@ -96,6 +94,62 @@ async function run() {
                 });
             }
         });
+        // login user
+        app.post('/login', async (req, res) => {
+            console.log('server hited')
+            const { emailOrPhone, PIN } = req.body;
+            console.log(req.body)
+
+            // Validate request body
+            if (!emailOrPhone || !PIN) {
+                return res.status(400).json({ error: 'All fields are required' });
+            }
+
+            try {
+                // Find user by email or phone_number
+                const user = await usersCollections.findOne({
+                    $or: [{ email: emailOrPhone }, { phone_number: emailOrPhone }]
+                });
+
+                if (!user) {
+                    return res.status(400).json({ error: 'User not found' });
+                }
+
+                // Check if user is banned
+                if (user?.status === 'Blocked') {
+                    return res.status(403).json({ error: 'Your account is Blocked. Please contact support.' });
+                }
+
+                // Compare password with the stored hash
+                const isMatch = await bcrypt.compare(PIN, user.PIN);
+                if (!isMatch) {
+                    return res.status(400).json({ error: 'Invalid credentials' });
+                }
+
+                // Generate JWT token, excluding sensitive fields
+                const { PIN: _, ...userInfo } = user;
+                const token = jwt.sign(
+                    {
+                        id: user._id,
+                        name: user.name,
+                        phone_number: user.phone_number,
+                        email: user.email,
+                        userType: user.userType,
+                        NID: user.NID,
+                        account_status: user.account_status,
+                        current_balance: user.current_balance,
+                    },
+                    process.env.JWT_SECRET,
+                    { expiresIn: '12h' }
+                );
+
+                // Respond with the token and success message
+                res.json({ success: true, token, message: 'Login successful' });
+            } catch (err) {
+                console.error('Error during login:', err);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        })
         // TODO: jwt secure
         app.get('/all-users', async (req, res) => {
             try {
