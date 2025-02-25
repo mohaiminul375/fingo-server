@@ -45,19 +45,19 @@ async function run() {
     try {
         // DB collection 
         const usersCollections = client.db('fingo-mfs').collection('all-users');
+        const trxCollections = client.db('fingo-mfs').collection('all-transactions')
+
+        /**** ADMIN DASHBOARD *****/
         // Users management and Authentication
         // Create a User
         app.post('/create-user', async (req, res) => {
             try {
                 const { name, phone_number, PIN, email, userType, NID } = req.body;
-                console.log(req.body)
+                // console.log(req.body);
+
                 // Check for existing user
                 const existingUser = await usersCollections.findOne({
-                    $or: [
-                        { phone_number },
-                        { email },
-                        { NID }
-                    ]
+                    $or: [{ phone_number }, { email }, { NID }]
                 });
 
                 if (existingUser) {
@@ -67,10 +67,10 @@ async function run() {
                     });
                 }
 
-                // Hash the PIN (password)
+                // Hash the PIN
                 const hashedPIN = bcrypt.hashSync(PIN, 10);
 
-                // Create user object
+                // Create new user object
                 const newUser = {
                     name,
                     phone_number,
@@ -78,20 +78,47 @@ async function run() {
                     userType,
                     NID,
                     PIN: hashedPIN,
-                    createdAt: new Date()
+                    createdAt: new Date(),
                 };
 
                 // Set account status & balance
+                let bonusAmount = 0;
                 if (userType === "Agent") {
                     newUser.account_status = "Pending";
                     newUser.current_balance = 100000;
+                    bonusAmount = 100000;
                 } else if (userType === "User") {
                     newUser.account_status = "Active";
                     newUser.current_balance = 40;
+                    bonusAmount = 40;
                 }
-                console.log(newUser, 'before insert')
+
+                console.log(newUser, 'before insert');
+
                 // Insert new user
                 const result = await usersCollections.insertOne(newUser);
+
+                if (result.insertedId) {
+                    // Create transaction record for the new user bonus
+                    const newTrx = {
+                        method: 'New_user_bonus',
+                        sender_name: 'Fingo-mfs',
+                        sender_phone: 'Fingo-mfs@support',
+                        receiver_name: name,
+                        receiver_phone: phone_number,
+                        amount: bonusAmount,
+                        createdAt: new Date()
+                    };
+                    const trxResult = await trxCollections.insertOne(newTrx);
+                    // Throw error if doesn't found insertedId
+                    if (!trxResult.insertedId) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "User registered, but transaction could not be recorded."
+                        });
+                    }
+                }
+                // Return if success 
                 res.status(201).json({
                     success: true,
                     message: "User registered successfully!",
@@ -112,6 +139,7 @@ async function run() {
                 });
             }
         });
+
         // login user
         app.post('/login', async (req, res) => {
             console.log('server hited')
@@ -169,7 +197,7 @@ async function run() {
             }
         })
         // TODO: jwt secure
-        app.get('/all-users', async (req, res) => {
+        app.get('/all-users-admin', async (req, res) => {
             try {
                 const result = await usersCollections.find().toArray();
                 res.status(200).send(result)
@@ -201,6 +229,28 @@ async function run() {
                 res.status(500).json({ message: "Error fetching user data" });
             }
         });
+        // get all transaction
+        app.get('/all-transactions-admin', async (req, res) => {
+            try {
+                const result = await trxCollections.find().toArray();
+                res.status(200).send(result)
+            } catch (error) {
+                console.error('Error fetching transactions data:', error);
+                res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch transactions data. Please try again later.',
+                });
+            }
+        })
+
+
+
+
+
+
+
+
+
 
         // Connect the client to the server	(optional starting in v4.7)
         // await client.connect();
