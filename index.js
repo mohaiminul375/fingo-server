@@ -86,6 +86,7 @@ async function run() {
                 if (userType === "Agent") {
                     newUser.account_status = "Pending";
                     newUser.current_balance = 100000;
+                    newUser.total_income = 0;
                     bonusAmount = 100000;
                 } else if (userType === "User") {
                     newUser.account_status = "Active";
@@ -259,6 +260,7 @@ async function run() {
             }
 
         })
+        // Approve or verify agent
         app.put('/agent-approval-admin/:id', async (req, res) => {
             try {
                 const id = req.params.id;
@@ -287,6 +289,56 @@ async function run() {
             }
         });
 
+
+
+        // Method for Agent
+        // Verify information during cashIn
+        app.post('/verify-cashIn', async (req, res) => {
+            const {
+                PIN,
+                agent_name,
+                agent_phone_number,
+                cashIn,
+                method,
+                receiver_phone_number,
+                trx_amount
+            } = req.body;
+            console.log(req.body)
+            // Ensure the method is cashIn
+            if (method !== 'cashIn') {
+                return res.status(400).json({ error: 'Invalid method' });
+            }
+
+            // Verify agent's phone number and PIN
+            const verifyAgent = await usersCollections.findOne({ phone_number: agent_phone_number });
+            if (!verifyAgent) {
+                return res.status(404).json({ error: 'Agent not found' });
+            }
+
+            const isMatch = await bcrypt.compare(PIN, verifyAgent.PIN);
+            if (!isMatch) {
+                return res.status(400).json({ error: 'Invalid credentials' });
+            }
+
+            // Verify receiver's phone number
+            const verifyReceiver = await usersCollections.findOne({ phone_number: receiver_phone_number });
+            if (!verifyReceiver) {
+                return res.status(404).json({ error: 'Receiver not found' });
+            }
+            let receiver_name = verifyReceiver.name
+            // Verified info send to front-end
+            const verifiedTransaction = {
+                agent_name,
+                agent_phone_number,
+                cashIn,
+                receiver_name,
+                receiver_phone_number,
+                amount: trx_amount
+            };
+
+            // Send response with verified transaction details
+            return res.status(200).json({ verifiedTransaction });
+        });
 
 
 
