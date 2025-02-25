@@ -199,8 +199,13 @@ async function run() {
         // TODO: jwt secure
         app.get('/all-users-admin', async (req, res) => {
             try {
-                const result = await usersCollections.find().toArray();
-                res.status(200).send(result)
+                const result = await usersCollections
+                    .find({}, { projection: { PIN: 0 } }) // Exclude PIN
+                    .sort([
+                        { userType: -1 }, // Ensure Admin comes first, by sorting in descending order
+                        { createdAt: - 1 } // Then sort by createdAt in descending order
+                    ]).toArray();
+                res.status(200).send(result);
             } catch (error) {
                 console.error('Error fetching users:', error);
                 res.status(500).json({
@@ -208,8 +213,7 @@ async function run() {
                     message: 'Failed to fetch users list. Please try again later.',
                 });
             }
-
-        })
+        });
         // get user info
         app.get('/user', authenticateUser, async (req, res) => {
             try {
@@ -221,7 +225,7 @@ async function run() {
                     return res.status(404).json({ message: "User not found" });
                 }
                 // Remove password from the user object
-                const { password, ...userWithoutPin } = user;
+                const { PIN, ...userWithoutPin } = user;
 
                 res.status(200).json({ user: userWithoutPin });
             } catch (error) {
