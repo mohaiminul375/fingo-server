@@ -1,4 +1,4 @@
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const express = require('express');
 const app = express();
 const port = 5000;
@@ -246,6 +246,46 @@ async function run() {
                 });
             }
         })
+        app.get('/all-pending-agent-admin', async (req, res) => {
+            try {
+                const result = await usersCollections.find({ userType: 'Agent', account_status: 'Pending' }).toArray();
+                res.status(200).send(result)
+            } catch (error) {
+                console.error('Error fetching approval agent data:', error);
+                res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch approval agent data. Please try again later.',
+                });
+            }
+
+        })
+        app.put('/agent-approval-admin/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const { account_status } = req.body;
+                console.log(id, account_status)
+                const query = { _id: new ObjectId(id) };
+                const option = { upsert: true };
+                const updateDoc = {
+                    $set: {
+                        account_status: account_status,
+                        approvedAt: new Date(),
+                    }
+                };
+
+                const result = await usersCollections.updateOne(query, updateDoc, option,);
+                // Send success response
+                res.status(200).send(result);
+            } catch (error) {
+                // Handle errors
+                console.error('Error during agent approval:', error);
+                res.status(500).send({
+                    success: false,
+                    message: 'Failed to update agent approval. Please try again later.',
+                    error: error.message || 'Unknown error',
+                });
+            }
+        });
 
 
 
