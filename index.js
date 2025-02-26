@@ -625,7 +625,87 @@ async function run() {
             return res.status(200).json({ verifiedTransaction });
         });
 
+        //complete cash out
+        app.post('/complete-cashOut', async (req, res) => {
+            const { method, user_name, user_phone_number, agent_name, agent_phone_number, amount, trx_charge } = req.body;
 
+            try {
+                // Get Agent
+                const verifyUser = await usersCollections.findOne({ phone_number: user_phone_number });
+                if (!verifyUser) {
+                    return res.status(404).json({ error: 'Sender not found' });
+                }
+
+                // Get Receiver
+                const verifyAgent = await usersCollections.findOne({ phone_number: agent_phone_number });
+                if (!verifyAgent) {
+                    return res.status(404).json({ error: 'Receiver not found' });
+                }
+
+                // Calculate Agent Balance and income minus form balance and add to income 1% of trx amount
+                const parsedAmount = parseFloat(amount);
+                const parsedCharge = parseFloat(trx_charge)
+                const senderBalanceCalculation = verifyUser.current_balance - parsedAmount - parsedCharge;
+
+                // Calculate Receiver balance add amount to balance
+                const agentBalanceCalculation = verifyAgent.current_balance + parsedAmount;
+                const agentIncomeCalculation = verifyAgent.total_income + parsedAmount * 0.01;
+                const adminIncomeCalculation = parsedAmount * 0.005;
+                // Log the calculations for debugging
+                console.log(agentBalanceCalculation, senderBalanceCalculation);
+
+                // Create transaction object
+                const newTrx = { method, user_name, user_phone_number, agent_name, agent_phone_number, amount: parsedAmount, createdAt: new Date(), trx_charge };
+                console.log(newTrx);
+
+                // Insert transaction into the collection
+                const createTrx = await trxCollections.insertOne(newTrx);
+                if (!createTrx.acknowledged) {
+                    return res.status(500).json({ error: 'Failed to create transaction' });
+                }
+
+                // Update Sender Balance and Income
+                const senderAccountUpdate = await usersCollections.updateOne(
+                    { phone_number: user_phone_number },
+                    {
+                        $set: {
+                            current_balance: senderBalanceCalculation,
+                        }
+                    }
+                );
+                if (senderAccountUpdate.modifiedCount === 0) {
+                    return res.status(500).json({ error: 'Failed to update agent account' });
+                }
+
+                // Update Receiver Balance
+                const receiverAccountUpdate = await usersCollections.updateOne(
+                    { phone_number: agent_phone_number },
+                    {
+                        $set: {
+                            current_balance: agentBalanceCalculation,
+                            total_income: agentIncomeCalculation,
+                        }
+                    }
+                );
+                if (receiverAccountUpdate.modifiedCount === 0) {
+                    return res.status(500).json({ error: 'Failed to update receiver account' });
+                }
+                // updateAdmin account add will trx_charge
+                const updateAdminIncome = await usersCollections.updateOne(
+                    { userType: 'Admin' },
+                    { $inc: { total_income: adminIncomeCalculation } }
+                );
+                if (updateAdminIncome.modifiedCount === 0) {
+                    return res.status(500).json({ error: 'Failed to update admin account' });
+                }
+                // Final success response
+                return res.status(200).json({ success: true, message: 'Transaction completed successfully' });
+
+            } catch (error) {
+                console.error('Error in /complete-cashIn:', error);
+                return res.status(500).json({ error: 'An error occurred while processing the transaction' });
+            }
+        });
 
         // Connect the client to the server	(optional starting in v4.7)
         // await client.connect();
