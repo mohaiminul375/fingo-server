@@ -326,6 +326,9 @@ async function run() {
             if (!verifyReceiver) {
                 return res.status(404).json({ error: 'Receiver not found' });
             }
+            if (verifyReceiver.userType !== 'User') {
+                return res.status(404).json({ error: 'Receiver must a customer' });
+            }
             let receiver_name = verifyReceiver.name
             // Verified info send to front-end
             const verifiedTransaction = {
@@ -342,6 +345,142 @@ async function run() {
             return res.status(200).json({ verifiedTransaction });
         });
 
+        // Complete CashIN
+        app.post('/complete-cashIn', async (req, res) => {
+            const { method, agent_name, agent_phone_number, receiver_name, receiver_phone_number, amount } = req.body;
+
+            try {
+                // Get Agent
+                const verifyAgent = await usersCollections.findOne({ phone_number: agent_phone_number });
+                if (!verifyAgent) {
+                    return res.status(404).json({ error: 'Agent not found' });
+                }
+
+                // Get Receiver
+                const verifyReceiver = await usersCollections.findOne({ phone_number: receiver_phone_number });
+                if (!verifyReceiver) {
+                    return res.status(404).json({ error: 'Receiver not found' });
+                }
+
+                // Calculate Agent Balance and income minus form balance and add to income 1% of trx amount
+                const parsedAmount = parseFloat(amount);
+                const agentBalanceCalculation = verifyAgent.current_balance - parsedAmount;
+                const agentIncomeCalculation = verifyAgent.total_income + parsedAmount * 0.01;
+
+                // Calculate Receiver balance add amount to balance
+                const customerBalanceCalculation = verifyReceiver.current_balance + parsedAmount;
+
+                // Log the calculations for debugging
+                console.log(agentBalanceCalculation, agentIncomeCalculation, customerBalanceCalculation);
+
+                // Create transaction object
+                const newTrx = { method, agent_name, agent_phone_number, receiver_name, receiver_phone_number, amount: parsedAmount, createdAt: new Date() };
+                console.log(newTrx);
+
+                // Insert transaction into the collection
+                const createTrx = await trxCollections.insertOne(newTrx);
+                if (!createTrx.acknowledged) {
+                    return res.status(500).json({ error: 'Failed to create transaction' });
+                }
+
+                // Update Agent Balance and Income
+                const agentAccountUpdate = await usersCollections.updateOne(
+                    { phone_number: agent_phone_number },
+                    {
+                        $set: {
+                            current_balance: agentBalanceCalculation,
+                            total_income: agentIncomeCalculation,
+                        }
+                    }
+                );
+                if (agentAccountUpdate.modifiedCount === 0) {
+                    return res.status(500).json({ error: 'Failed to update agent account' });
+                }
+
+                // Update Receiver Balance
+                const receiverAccountUpdate = await usersCollections.updateOne(
+                    { phone_number: receiver_phone_number },
+                    {
+                        $set: {
+                            current_balance: customerBalanceCalculation,
+                        }
+                    }
+                );
+                if (receiverAccountUpdate.modifiedCount === 0) {
+                    return res.status(500).json({ error: 'Failed to update receiver account' });
+                }
+
+                // Final success response
+                return res.status(200).json({ message: 'Transaction completed successfully' });
+
+            } catch (error) {
+                console.error('Error in /complete-cashIn:', error);
+                return res.status(500).json({ error: 'An error occurred while processing the transaction' });
+            }
+        });
+
+
+        // Verify information during sendMoney
+        app.post('/verify-sendMoney', async (req, res) => {
+            const {
+                PIN,
+                sender_name,
+                sender_phone_number,
+                cashIn,
+                method,
+                receiver_phone_number,
+                trx_amount
+            } = req.body;
+            console.log(req.body)
+            // Ensure the method is cashIn
+            if (sender_phone_number === receiver_phone_number) {
+                return res.status(400).json({ error: 'Invalid method' });
+            }
+            if (method !== 'sendMoney') {
+                return res.status(400).json({ error: 'Invalid method' });
+            }
+
+            // Verify Sender's phone number and PIN
+            const verifySender = await usersCollections.findOne({ phone_number: sender_phone_number });
+            if (!verifySender) {
+                return res.status(404).json({ error: 'Sender not found' });
+            }
+
+            const isMatch = await bcrypt.compare(PIN, verifySender.PIN);
+            if (!isMatch) {
+                return res.status(400).json({ error: 'Invalid credentials' });
+            }
+
+            // Verify receiver's phone number
+            const verifyReceiver = await usersCollections.findOne({ phone_number: receiver_phone_number });
+            if (!verifyReceiver) {
+                return res.status(404).json({ error: 'Receiver not found' });
+            }
+            if (verifyReceiver.userType !== 'User') {
+                return res.status(404).json({ error: 'Receiver is not valid' });
+            }
+            let receiver_name = verifyReceiver.name;
+            // Parse amount
+            let trx_charge = 0;
+            const parsedAmount = parseFloat(trx_amount);
+            if (parsedAmount > 100) {
+                trx_charge = 5
+            }
+            // Verified info send to front-end
+            const verifiedTransaction = {
+                method,
+                sender_name,
+                sender_phone_number,
+                cashIn,
+                receiver_name,
+                receiver_phone_number,
+                amount: trx_amount,
+                trx_charge,
+            };
+
+            // Send response with verified transaction details
+            return res.status(200).json({ verifiedTransaction });
+        });
 
 
         app.post('/complete-cashIn', async (req, res) => {
