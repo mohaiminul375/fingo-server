@@ -46,6 +46,7 @@ async function run() {
         // DB collection 
         const usersCollections = client.db('fingo-mfs').collection('all-users');
         const trxCollections = client.db('fingo-mfs').collection('all-transactions')
+        const agentMoneyReqCollections = client.db('fingo-mfs').collection('all-agent-money-request')
 
         /**** ADMIN DASHBOARD *****/
         // Users management and Authentication
@@ -419,6 +420,64 @@ async function run() {
             }
         });
 
+        // Money Request
+        app.post('/request-money-agent', async (req, res) => {
+            try {
+                const { agent_name, agent_number } = req.body;
+                if (!agent_name || !agent_number) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Agent name and phone number are required.'
+                    });
+                }
+                const verifyAgent = await usersCollections.findOne({ phone_number: agent_number })
+                if (verifyAgent.userType !== 'Agent') {
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Failed to verify Agent. Please try again.'
+                    });
+                }
+                const newReq = {
+                    agent_name,
+                    agent_phone_number: agent_number,
+                    request_amount: 100000,
+                    requestedAt: new Date(),
+                    status: "pending"
+                };
+                const result = await agentMoneyReqCollections.insertOne(newReq);
+
+                if (!result.acknowledged) {
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Failed to create money request. Please try again.'
+                    });
+                }
+                res.status(201).json({
+                    success: true,
+                    message: 'Money request submitted successfully.',
+                    requestId: result.insertedId
+                });
+            } catch (error) {
+                console.error('Error creating money request:', error);
+                res.status(500).json({
+                    success: false,
+                    message: 'Internal server error. Please try again later.'
+                });
+            }
+        });
+
+
+
+
+
+
+
+
+
+
+
+
+        // Method for user
 
         // Verify information during sendMoney
         app.post('/verify-sendMoney', async (req, res) => {
