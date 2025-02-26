@@ -203,8 +203,8 @@ async function run() {
                 const result = await usersCollections
                     .find({}, { projection: { PIN: 0 } }) // Exclude PIN
                     .sort([
-                        { userType: -1 }, // Ensure Admin comes first, by sorting in descending order
-                        { createdAt: - 1 } // Then sort by createdAt in descending order
+                        { userType: -1 }, //  descending order
+                        { createdAt: -1 } // descending order
                     ]).toArray();
                 res.status(200).send(result);
             } catch (error) {
@@ -237,8 +237,9 @@ async function run() {
         // get all transaction
         app.get('/all-transactions-admin', async (req, res) => {
             try {
-                const result = await trxCollections.find().toArray();
-                res.status(200).send(result)
+                const result = await trxCollections.find().sort({ createdAt: -1 }).toArray();     // descending order
+
+                res.status(200).send(result);
             } catch (error) {
                 console.error('Error fetching transactions data:', error);
                 res.status(500).json({
@@ -328,6 +329,7 @@ async function run() {
             let receiver_name = verifyReceiver.name
             // Verified info send to front-end
             const verifiedTransaction = {
+                method,
                 agent_name,
                 agent_phone_number,
                 cashIn,
@@ -342,6 +344,78 @@ async function run() {
 
 
 
+        app.post('/complete-cashIn', async (req, res) => {
+            const { method, agent_name, agent_phone_number, receiver_name, receiver_phone_number, amount } = req.body;
+
+            try {
+                // Get Agent
+                const verifyAgent = await usersCollections.findOne({ phone_number: agent_phone_number });
+                if (!verifyAgent) {
+                    return res.status(404).json({ error: 'Agent not found' });
+                }
+
+                // Get Receiver
+                const verifyReceiver = await usersCollections.findOne({ phone_number: receiver_phone_number });
+                if (!verifyReceiver) {
+                    return res.status(404).json({ error: 'Receiver not found' });
+                }
+
+                // Calculate Agent Balance and income minus form balance and add to income 1% of trx amount
+                const parsedAmount = parseFloat(amount);
+                const agentBalanceCalculation = verifyAgent.current_balance - parsedAmount;
+                const agentIncomeCalculation = verifyAgent.total_income + parsedAmount * 0.01;
+
+                // Calculate Receiver balance add amount to balance
+                const customerBalanceCalculation = verifyReceiver.current_balance + parsedAmount;
+
+                // Log the calculations for debugging
+                console.log(agentBalanceCalculation, agentIncomeCalculation, customerBalanceCalculation);
+
+                // Create transaction object
+                const newTrx = { method, agent_name, agent_phone_number, receiver_name, receiver_phone_number, amount: parsedAmount, createdAt: new Date() };
+                console.log(newTrx);
+
+                // Insert transaction into the collection
+                const createTrx = await trxCollections.insertOne(newTrx);
+                if (!createTrx.acknowledged) {
+                    return res.status(500).json({ error: 'Failed to create transaction' });
+                }
+
+                // Update Agent Balance and Income
+                const agentAccountUpdate = await usersCollections.updateOne(
+                    { phone_number: agent_phone_number },
+                    {
+                        $set: {
+                            current_balance: agentBalanceCalculation,
+                            total_income: agentIncomeCalculation,
+                        }
+                    }
+                );
+                if (agentAccountUpdate.modifiedCount === 0) {
+                    return res.status(500).json({ error: 'Failed to update agent account' });
+                }
+
+                // Update Receiver Balance
+                const receiverAccountUpdate = await usersCollections.updateOne(
+                    { phone_number: receiver_phone_number },
+                    {
+                        $set: {
+                            current_balance: customerBalanceCalculation,
+                        }
+                    }
+                );
+                if (receiverAccountUpdate.modifiedCount === 0) {
+                    return res.status(500).json({ error: 'Failed to update receiver account' });
+                }
+
+                // Final success response
+                return res.status(200).json({ message: 'Transaction completed successfully' });
+
+            } catch (error) {
+                console.error('Error in /complete-cashIn:', error);
+                return res.status(500).json({ error: 'An error occurred while processing the transaction' });
+            }
+        });
 
 
 
