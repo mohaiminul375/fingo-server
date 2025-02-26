@@ -49,9 +49,14 @@ async function run() {
         const trxCollections = client.db('fingo-mfs').collection('all-transactions')
         const agentMoneyReqCollections = client.db('fingo-mfs').collection('all-agent-money-request')
         const agentWithdrawReqCollections = client.db('fingo-mfs').collection('all-agent-withdraw-request')
+        const totalTrxCreated = client.db('fingo-mfs').collection('total-transaction-created')
 
         /**** ADMIN DASHBOARD *****/
         // Users management and Authentication
+        app.get('/total-transaction-platform', async (req, res) => {
+            const result = await totalTrxCreated.find().toArray();
+            res.send(result);
+        })
         // Create a User
         app.post('/create-user', async (req, res) => {
             try {
@@ -103,20 +108,39 @@ async function run() {
                 const result = await usersCollections.insertOne(newUser);
 
                 if (result.insertedId) {
-                    // Create transaction record for the new user bonus
-                    const newTrx = {
-                        TrxID: uuidv4().slice(0, 10),
-                        method: 'New_user_bonus',
+                    // Create transaction record for the new user bonus two separate
+                    const trx_id = uuidv4().slice(0, 10);
+                    const trx_time = new Date();
+                    const newTrx = [{
+                        TrxID: trx_id,
+                        method: 'New_user_bonus_send',
                         sender_name: 'Fingo-mfs',
                         sender_phone_number: 'Fingo-mfs@support',
                         receiver_name: name,
                         receiver_phone_number: phone_number,
                         amount: bonusAmount,
-                        createdAt: new Date()
-                    };
-                    const trxResult = await trxCollections.insertOne(newTrx);
+                        createdAt: trx_time
+                    }, {
+                        TrxID: trx_id,
+                        method: 'New_user_bonus_receive',
+                        sender_name: 'Fingo-mfs',
+                        sender_phone_number: 'Fingo-mfs@support',
+                        receiver_name: name,
+                        receiver_phone_number: phone_number,
+                        amount: bonusAmount,
+                        createdAt: trx_time
+                    }]
+                    const trxResult = await trxCollections.insertMany(newTrx);
+                    console.log(trxResult)
+                    if (trxResult.insertedCount) {
+                        console.log(bonusAmount)
+                        await totalTrxCreated.updateOne(
+                            {},
+                            { $inc: { total_created_transaction: bonusAmount }, }, { upsert: true }
+                        );
+                    }
                     // Throw error if doesn't found insertedId
-                    if (!trxResult.insertedId) {
+                    if (!trxResult.insertedCount) {
                         return res.status(500).json({
                             success: false,
                             message: "User registered, but transaction could not be recorded."
