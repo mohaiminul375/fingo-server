@@ -294,7 +294,7 @@ async function run() {
             }
         });
 
-        // Agent Cash Requests
+        // Agent Cash Requests list
         app.get('/all-cashRequest-agent', async (req, res) => {
             try {
                 const result = await agentMoneyReqCollections.find({ status: 'pending' }).sort({ createdAt: -1 }).toArray()
@@ -306,8 +306,104 @@ async function run() {
                 });
             }
         })
+        // Agent withdraw Requests list
+        app.get('/all-withdrawRequest-agent', async (req, res) => {
+            try {
+                const result = await agentWithdrawReqCollections.find({ status: 'pending' }).sort({ createdAt: -1 }).toArray()
+                res.status(200).send(result)
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch Request data. Please try again later.',
+                });
+            }
+        })
         // approve agent cash request
         app.post('/approve-agent-cashRequest', async (req, res) => {
+            try {
+                const { _id, agent_name, agent_phone_number, request_amount } = req.body;
+
+                // Validate required fields
+                if (!_id || !agent_name || !agent_phone_number || !request_amount) {
+                    return res.status(400).json({ message: "Missing required fields" });
+                }
+
+                console.log(req.body);
+
+                // Convert request_amount to a number
+                const amount = parseFloat(request_amount);
+                if (isNaN(amount) || amount <= 0) {
+                    return res.status(400).json({ message: "Invalid request amount" });
+                }
+
+                // Verify if the agent exists
+                const verifyAgent = await usersCollections.findOne({ phone_number: agent_phone_number });
+                if (!verifyAgent) {
+                    return res.status(404).json({ message: "Agent not found" });
+                }
+
+                // Create Transaction
+                const createTrx = {
+                    TrxID: uuidv4().slice(0, 10),
+                    sender_name: 'Fingo-mfs',
+                    sender_phone_number: 'Fingo-mfs@support',
+                    agent_name,
+                    agent_phone_number,
+                    amount,
+                    method: 'Agent_cash_In',
+                    createdAt: new Date(),
+                };
+
+                const newTrx = await trxCollections.insertOne(createTrx);
+                if (!newTrx.acknowledged || !newTrx.insertedId) {
+                    return res.status(500).json({ message: "Transaction creation failed" });
+                }
+
+                // Fetch the latest agent data after transaction
+                const currentAgent = await usersCollections.findOne({ phone_number: agent_phone_number });
+                if (!currentAgent) {
+                    return res.status(500).json({ message: "Agent record not found after transaction" });
+                }
+
+                const newBalance = (currentAgent.current_balance || 0) + amount;
+
+                // Update Agent's Balance
+                const updateBalance = await usersCollections.updateOne(
+                    { phone_number: agent_phone_number },
+                    { $set: { current_balance: newBalance } }
+                );
+
+                if (updateBalance.modifiedCount === 0) {
+                    return res.status(500).json({ message: "Failed to update agent's balance" });
+                }
+
+                // Update Cash Request Status
+                const updateStatus = await agentMoneyReqCollections.updateOne(
+                    { _id: new ObjectId(_id) },
+                    { $set: { status: 'Approved', approvedAt: new Date() } }
+                );
+
+                if (updateStatus.modifiedCount === 0) {
+                    return res.status(500).json({ message: "Failed to update cash request status" });
+                }
+
+                // Success Response
+                res.status(200).json({
+                    success: true,
+                    message: "Agent cash request approved successfully",
+                    newBalance
+                });
+
+            } catch (error) {
+                console.error("Error in approving agent cash request: ", error);
+                res.status(500).json({
+                    message: "An error occurred while approving the agent's cash request",
+                    error: error.message
+                });
+            }
+        });
+        // approve withdraw request
+        app.post('/approve-withdraw-cashRequest', async (req, res) => {
             try {
                 const { _id, agent_name, agent_phone_number, request_amount, status, requestedAt } = req.body;
                 console.log(req.body);
@@ -325,7 +421,7 @@ async function run() {
                     agent_name: agent_name,
                     agent_phone_number,
                     amount: request_amount,
-                    method: 'Agent_cash_In',
+                    method: 'Withdraw_agent_income',
                     createdAt: new Date(),
                 };
 
@@ -335,10 +431,10 @@ async function run() {
                 }
 
                 const currentAgent = await usersCollections.findOne({ phone_number: agent_phone_number });
-                const newBalance = currentAgent.current_balance + request_amount;
+                const newIncome = currentAgent.total_income - request_amount;
                 const updateBalance = await usersCollections.updateOne(
                     { phone_number: agent_phone_number },
-                    { $set: { current_balance: newBalance } }
+                    { $set: { total_income: newIncome } }
                 );
 
                 if (updateBalance.modifiedCount === 0) {
@@ -346,7 +442,7 @@ async function run() {
                 }
 
                 // Update the status of the agent's cash request
-                const updateStatus = await agentMoneyReqCollections.updateOne(
+                const updateStatus = await agentWithdrawReqCollections.updateOne(
                     { _id: new ObjectId(_id) },
                     { $set: { status: 'Approved', approvedAt: new Date() } }
                 );
@@ -356,7 +452,7 @@ async function run() {
                 }
 
                 // Return success response
-                res.status(200).json({ success: true, message: "Agent cash request approved successfully", newBalance });
+                res.status(200).json({ success: true, message: "Agent cash request approved successfully", newIncome });
             } catch (error) {
                 console.error("Error in approving agent cash request: ", error);
                 res.status(500).json({ message: "An error occurred while approving the agent's cash request", error: error.message });
@@ -565,8 +661,8 @@ async function run() {
                 }
                 const newReq = {
                     agent_name,
-                    agent_phone_number: withdrawAmount,
-                    request_amount: 100000,
+                    agent_phone_number: agent_number,
+                    request_amount: withdrawAmount,
                     requestedAt: new Date(),
                     status: "pending"
                 };
@@ -591,6 +687,7 @@ async function run() {
                 });
             }
         });
+
 
 
         // Method for user
