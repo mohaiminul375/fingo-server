@@ -1,6 +1,7 @@
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const express = require('express');
 const app = express();
+const { v4: uuidv4 } = require('uuid');
 const port = 5000;
 const bcrypt = require('bcrypt');
 require('dotenv').config();
@@ -104,11 +105,12 @@ async function run() {
                 if (result.insertedId) {
                     // Create transaction record for the new user bonus
                     const newTrx = {
+                        TrxID: uuidv4().slice(0, 10),
                         method: 'New_user_bonus',
                         sender_name: 'Fingo-mfs',
-                        sender_phone: 'Fingo-mfs@support',
+                        sender_phone_number: 'Fingo-mfs@support',
                         receiver_name: name,
-                        receiver_phone: phone_number,
+                        receiver_phone_number: phone_number,
                         amount: bonusAmount,
                         createdAt: new Date()
                     };
@@ -395,7 +397,7 @@ async function run() {
                 // console.log(agentBalanceCalculation, agentIncomeCalculation, customerBalanceCalculation);
 
                 // Create transaction object
-                const newTrx = { method, agent_name, agent_phone_number, user_name, user_phone_number, amount: parsedAmount, createdAt: new Date() };
+                const newTrx = { method, agent_name, agent_phone_number, user_name, user_phone_number, amount: parsedAmount, createdAt: new Date(), TrxID: uuidv4().slice(0, 10), };
                 console.log(newTrx);
 
                 // Insert transaction into the collection
@@ -625,7 +627,7 @@ async function run() {
                 console.log(receiverBalanceCalculation, senderBalanceCalculation);
 
                 // Create transaction object
-                const newTrx = { method, sender_name, sender_phone_number, receiver_name, receiver_phone_number, amount: parsedAmount, createdAt: new Date(), trx_charge };
+                const newTrx = { method, sender_name, sender_phone_number, receiver_name, receiver_phone_number, amount: parsedAmount, createdAt: new Date(), trx_charge, TrxID: uuidv4().slice(0, 10), };
                 console.log(newTrx);
 
                 // Insert transaction into the collection
@@ -769,7 +771,7 @@ async function run() {
                 console.log(agentBalanceCalculation, senderBalanceCalculation);
 
                 // Create transaction object
-                const newTrx = { method, user_name, user_phone_number, agent_name, agent_phone_number, amount: parsedAmount, createdAt: new Date(), trx_charge };
+                const newTrx = { method, user_name, user_phone_number, agent_name, agent_phone_number, amount: parsedAmount, createdAt: new Date(), trx_charge, TrxID: uuidv4().slice(0, 10), };
                 console.log(newTrx);
 
                 // Insert transaction into the collection
@@ -820,6 +822,83 @@ async function run() {
                 return res.status(500).json({ error: 'An error occurred while processing the transaction' });
             }
         });
+        app.get('/all-transaction-user/:phone_number', async (req, res) => {
+            try {
+                const phone_number = req.params.phone_number;
+
+                // Check if user exists and is authorized
+                try {
+                    const isVerified = await usersCollections.findOne({ phone_number });
+
+                    if (!isVerified) {
+                        return res.status(404).send({ message: 'User not found' });
+                    }
+
+                    if (isVerified.userType !== 'User' && isVerified.account_status !== 'Active') {
+                        return res.status(403).send({ message: 'Unauthorized access' });
+                    }
+                } catch (error) {
+                    console.error('User verification error:', error);
+                    return res.status(500).send({ message: 'Internal Server Error' });
+                }
+
+                // Query transactions related to the phone number
+                const query = {
+                    $or: [
+                        { user_phone_number: phone_number },
+                        { receiver_phone_number: phone_number },
+                        { sender_phone_number: phone_number }
+                    ]
+                };
+
+                const result = await trxCollections.find(query).sort({ createdAt: -1 }).toArray();
+                res.status(200).send(result);
+            } catch (error) {
+                console.error('Transaction fetch error:', error);
+                res.status(500).send({ message: 'Internal Server Error' });
+            }
+        });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        app.get('/uuid', async (req, res) => {
+            const newid = uuidv4().slice(0, 10)
+            res.send(newid);
+        })
+
+
+
+
 
         // Connect the client to the server	(optional starting in v4.7)
         // await client.connect();
