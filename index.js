@@ -858,6 +858,43 @@ async function run() {
                 res.status(500).send({ message: 'Internal Server Error' });
             }
         });
+        app.get('/all-transaction-agent/:phone_number', async (req, res) => {
+            try {
+                const phone_number = req.params.phone_number;
+
+                // Check if user exists and is authorized
+                try {
+                    const isVerified = await usersCollections.findOne({ phone_number });
+
+                    if (!isVerified) {
+                        return res.status(404).send({ message: 'User not found' });
+                    }
+
+                    if (isVerified.userType !== 'Agent' && isVerified.account_status !== 'Active') {
+                        return res.status(403).send({ message: 'Unauthorized access' });
+                    }
+                } catch (error) {
+                    console.error('User verification error:', error);
+                    return res.status(500).send({ message: 'Internal Server Error' });
+                }
+
+                // Query transactions related to the phone number
+                const query = {
+                    $or: [
+                        { user_phone_number: phone_number },
+                        { receiver_phone_number: phone_number },
+                        { sender_phone_number: phone_number },
+                        { agent_phone_number: phone_number }
+                    ]
+                };
+
+                const result = await trxCollections.find(query).sort({ createdAt: -1 }).toArray();
+                res.status(200).send(result);
+            } catch (error) {
+                console.error('Transaction fetch error:', error);
+                res.status(500).send({ message: 'Internal Server Error' });
+            }
+        });
 
 
 
