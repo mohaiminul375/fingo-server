@@ -322,7 +322,7 @@ async function run() {
                 agent_phone_number,
                 cashIn,
                 method,
-                receiver_phone_number,
+                user_phone_number,
                 trx_amount
             } = req.body;
             console.log(req.body)
@@ -343,22 +343,22 @@ async function run() {
             }
 
             // Verify receiver's phone number
-            const verifyReceiver = await usersCollections.findOne({ phone_number: receiver_phone_number });
+            const verifyReceiver = await usersCollections.findOne({ phone_number: user_phone_number });
             if (!verifyReceiver) {
                 return res.status(404).json({ error: 'Receiver not found' });
             }
             if (verifyReceiver.userType !== 'User') {
                 return res.status(404).json({ error: 'Receiver must a customer' });
             }
-            let receiver_name = verifyReceiver.name
+            let user_name = verifyReceiver.name
             // Verified info send to front-end
             const verifiedTransaction = {
                 method,
                 agent_name,
                 agent_phone_number,
                 cashIn,
-                receiver_name,
-                receiver_phone_number,
+                user_name,
+                user_phone_number,
                 amount: trx_amount
             };
 
@@ -368,7 +368,7 @@ async function run() {
 
         // Complete CashIN
         app.post('/complete-cashIn', async (req, res) => {
-            const { method, agent_name, agent_phone_number, receiver_name, receiver_phone_number, amount } = req.body;
+            const { method, agent_name, agent_phone_number, user_name, user_phone_number, amount } = req.body;
 
             try {
                 // Get Agent
@@ -378,7 +378,7 @@ async function run() {
                 }
 
                 // Get Receiver
-                const verifyReceiver = await usersCollections.findOne({ phone_number: receiver_phone_number });
+                const verifyReceiver = await usersCollections.findOne({ phone_number: user_phone_number });
                 if (!verifyReceiver) {
                     return res.status(404).json({ error: 'Receiver not found' });
                 }
@@ -392,10 +392,10 @@ async function run() {
                 const customerBalanceCalculation = verifyReceiver.current_balance + parsedAmount;
 
                 // Log the calculations for debugging
-                console.log(agentBalanceCalculation, agentIncomeCalculation, customerBalanceCalculation);
+                // console.log(agentBalanceCalculation, agentIncomeCalculation, customerBalanceCalculation);
 
                 // Create transaction object
-                const newTrx = { method, agent_name, agent_phone_number, receiver_name, receiver_phone_number, amount: parsedAmount, createdAt: new Date() };
+                const newTrx = { method, agent_name, agent_phone_number, user_name, user_phone_number, amount: parsedAmount, createdAt: new Date() };
                 console.log(newTrx);
 
                 // Insert transaction into the collection
