@@ -9,7 +9,7 @@ const cors = require('cors');
 // Middleware & Cors
 app.use(express.json());
 app.use(cors({
-    origin: ['http://localhost:3000'],
+    origin: ['http://localhost:3000', "https://fingo-cash.vercel.app"],
     credentials: true
 }));
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.ixszr3u.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -47,6 +47,7 @@ async function run() {
         const usersCollections = client.db('fingo-mfs').collection('all-users');
         const trxCollections = client.db('fingo-mfs').collection('all-transactions')
         const agentMoneyReqCollections = client.db('fingo-mfs').collection('all-agent-money-request')
+        const agentWithdrawReqCollections = client.db('fingo-mfs').collection('all-agent-withdraw-request')
 
         /**** ADMIN DASHBOARD *****/
         // Users management and Authentication
@@ -291,6 +292,25 @@ async function run() {
             }
         });
 
+        // Agent Cash Requests
+        app.get('/all-cashRequest-agent', async (req, res) => {
+            try {
+                const result = await agentMoneyReqCollections.find({ status: 'pending' }).sort({ createdAt: -1 }).toArray()
+                res.status(200).send(result)
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    message: 'Failed to fetch Request data. Please try again later.',
+                });
+            }
+        })
+
+
+
+
+
+
+
 
 
         // Method for Agent
@@ -465,20 +485,55 @@ async function run() {
                 });
             }
         });
+        // Withdraw Request
+        app.post('/request-withdraw-agent', async (req, res) => {
+            try {
+                const { agent_name, agent_number, withdrawAmount } = req.body;
+                if (!agent_name || !agent_number) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Agent name and phone number are required.'
+                    });
+                }
+                // Verify Agent
+                const verifyAgent = await usersCollections.findOne({ phone_number: agent_number })
+                if (verifyAgent.userType !== 'Agent') {
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Failed to verify Agent. Please try again.'
+                    });
+                }
+                const newReq = {
+                    agent_name,
+                    agent_phone_number: withdrawAmount,
+                    request_amount: 100000,
+                    requestedAt: new Date(),
+                    status: "pending"
+                };
+                const result = await agentWithdrawReqCollections.insertOne(newReq);
 
-
-
-
-
-
-
-
-
-
+                if (!result.acknowledged) {
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Failed to create Withdraw request. Please try again.'
+                    });
+                }
+                res.status(201).json({
+                    success: true,
+                    message: 'withdraw request submitted successfully.',
+                    requestId: result.insertedId
+                });
+            } catch (error) {
+                console.error('Error creating withdraw request:', error);
+                res.status(500).json({
+                    success: false,
+                    message: 'Internal server error. Please try again later.'
+                });
+            }
+        });
 
 
         // Method for user
-
         // Verify information during sendMoney
         app.post('/verify-sendMoney', async (req, res) => {
             const {
