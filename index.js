@@ -563,7 +563,67 @@ async function run() {
         });
 
 
+        // Verify information during cash out
+        app.post('/verify-cashOut', async (req, res) => {
+            const {
+                PIN,
+                user_name,
+                user_phone_number,
+                cashIn,
+                method,
+                agent_phone_number,
+                trx_amount
+            } = req.body;
+            console.log(req.body)
+            // Ensure the method is cashIn
+            if (user_phone_number === agent_phone_number) {
+                return res.status(400).json({ error: 'Invalid method' });
+            }
+            if (method !== 'cashOut') {
+                return res.status(400).json({ error: 'Invalid method' });
+            }
 
+            // Verify Sender's phone number and PIN
+            const verifySender = await usersCollections.findOne({ phone_number: user_phone_number });
+            if (!verifySender) {
+                return res.status(404).json({ error: 'Sender not found' });
+            }
+
+            const isMatch = await bcrypt.compare(PIN, verifySender.PIN);
+            if (!isMatch) {
+                return res.status(400).json({ error: 'Invalid credentials' });
+            }
+
+            // Verify receiver agent's phone number
+            const verifyAgent = await usersCollections.findOne({ phone_number: agent_phone_number });
+            if (!verifyAgent) {
+                return res.status(404).json({ error: 'Receiver not found' });
+            }
+            if (verifyAgent.userType !== 'Agent') {
+                return res.status(404).json({ error: 'Receiver is not valid' });
+            }
+            let agent_name = verifyAgent.name;
+            // Parse amount
+            const parsedAmount = parseFloat(trx_amount);
+            // if (parsedAmount > 100) {
+            //     trx_charge = 5
+            // }
+            const calculateTrxAmount = parsedAmount * 0.015;
+            // Verified info send to front-end
+            const verifiedTransaction = {
+                method,
+                user_name,
+                user_phone_number,
+                cashIn,
+                agent_name,
+                agent_phone_number,
+                amount: trx_amount,
+                trx_charge: calculateTrxAmount,
+            };
+
+            // Send response with verified transaction details
+            return res.status(200).json({ verifiedTransaction });
+        });
 
 
 
