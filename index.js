@@ -483,14 +483,14 @@ async function run() {
         });
 
 
-        app.post('/complete-cashIn', async (req, res) => {
-            const { method, agent_name, agent_phone_number, receiver_name, receiver_phone_number, amount } = req.body;
+        app.post('/complete-sendMoney', async (req, res) => {
+            const { method, sender_name, sender_phone_number, receiver_name, receiver_phone_number, amount, trx_charge } = req.body;
 
             try {
                 // Get Agent
-                const verifyAgent = await usersCollections.findOne({ phone_number: agent_phone_number });
-                if (!verifyAgent) {
-                    return res.status(404).json({ error: 'Agent not found' });
+                const verifySender = await usersCollections.findOne({ phone_number: sender_phone_number });
+                if (!verifySender) {
+                    return res.status(404).json({ error: 'Sender not found' });
                 }
 
                 // Get Receiver
@@ -501,17 +501,17 @@ async function run() {
 
                 // Calculate Agent Balance and income minus form balance and add to income 1% of trx amount
                 const parsedAmount = parseFloat(amount);
-                const agentBalanceCalculation = verifyAgent.current_balance - parsedAmount;
-                const agentIncomeCalculation = verifyAgent.total_income + parsedAmount * 0.01;
+                const parsedCharge = parseFloat(trx_charge)
+                const senderBalanceCalculation = verifySender.current_balance - parsedAmount - parsedCharge;
 
                 // Calculate Receiver balance add amount to balance
-                const customerBalanceCalculation = verifyReceiver.current_balance + parsedAmount;
+                const receiverBalanceCalculation = verifyReceiver.current_balance + parsedAmount;
 
                 // Log the calculations for debugging
-                console.log(agentBalanceCalculation, agentIncomeCalculation, customerBalanceCalculation);
+                console.log(receiverBalanceCalculation, senderBalanceCalculation);
 
                 // Create transaction object
-                const newTrx = { method, agent_name, agent_phone_number, receiver_name, receiver_phone_number, amount: parsedAmount, createdAt: new Date() };
+                const newTrx = { method, sender_name, sender_phone_number, receiver_name, receiver_phone_number, amount: parsedAmount, createdAt: new Date(), trx_charge };
                 console.log(newTrx);
 
                 // Insert transaction into the collection
@@ -520,17 +520,16 @@ async function run() {
                     return res.status(500).json({ error: 'Failed to create transaction' });
                 }
 
-                // Update Agent Balance and Income
-                const agentAccountUpdate = await usersCollections.updateOne(
-                    { phone_number: agent_phone_number },
+                // Update Sender Balance and Income
+                const senderAccountUpdate = await usersCollections.updateOne(
+                    { phone_number: sender_phone_number },
                     {
                         $set: {
-                            current_balance: agentBalanceCalculation,
-                            total_income: agentIncomeCalculation,
+                            current_balance: senderBalanceCalculation,
                         }
                     }
                 );
-                if (agentAccountUpdate.modifiedCount === 0) {
+                if (senderAccountUpdate.modifiedCount === 0) {
                     return res.status(500).json({ error: 'Failed to update agent account' });
                 }
 
@@ -539,16 +538,23 @@ async function run() {
                     { phone_number: receiver_phone_number },
                     {
                         $set: {
-                            current_balance: customerBalanceCalculation,
+                            current_balance: receiverBalanceCalculation,
                         }
                     }
                 );
                 if (receiverAccountUpdate.modifiedCount === 0) {
                     return res.status(500).json({ error: 'Failed to update receiver account' });
                 }
-
+                // updateAdmin account add will trx_charge
+                const updateAdminIncome = await usersCollections.updateOne(
+                    { userType: 'Admin' },
+                    { $inc: { total_income: trx_charge } }
+                );
+                if (updateAdminIncome.modifiedCount === 0) {
+                    return res.status(500).json({ error: 'Failed to update admin account' });
+                }
                 // Final success response
-                return res.status(200).json({ message: 'Transaction completed successfully' });
+                return res.status(200).json({ success: true, message: 'Transaction completed successfully' });
 
             } catch (error) {
                 console.error('Error in /complete-cashIn:', error);
