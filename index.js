@@ -840,7 +840,7 @@ async function run() {
                 const trx_time = new Date();
                 const newTrx = [
                     {
-                        method,
+                        method: 'user_send_money',
                         sender_name,
                         sender_phone_number,
                         receiver_name,
@@ -850,7 +850,7 @@ async function run() {
                         trx_charge,
                         TrxID: trx_id,
                     }, {
-                        method: 'receivedMoney',
+                        method: 'user_received_money',
                         sender_name,
                         sender_phone_number,
                         receiver_name,
@@ -1006,13 +1006,39 @@ async function run() {
                 const adminIncomeCalculation = parsedAmount * 0.005;
                 // Log the calculations for debugging
                 console.log(agentBalanceCalculation, senderBalanceCalculation);
-
+                const trx_id = uuidv4().slice(0, 10)
+                const trx_date = new Date();
                 // Create transaction object
-                const newTrx = { method, user_name, user_phone_number, agent_name, agent_phone_number, amount: parsedAmount, createdAt: new Date(), trx_charge, TrxID: uuidv4().slice(0, 10), };
+                const newTrx = [
+                    {
+                        method: 'Agent_Cash_In',
+                        user_name,
+                        user_phone_number,
+                        agent_name, agent_phone_number,
+                        amount: parsedAmount,
+                        createdAt: trx_date,
+                        trx_charge,
+                        TrxID: trx_id,
+
+                    },
+                    {
+
+                        method: 'Agent_Cash_Out',
+                        user_name,
+                        user_phone_number,
+                        agent_name, agent_phone_number,
+                        amount: parsedAmount,
+                        createdAt: trx_date,
+                        trx_charge,
+                        TrxID: trx_id,
+
+
+                    }
+                ];
                 console.log(newTrx);
 
                 // Insert transaction into the collection
-                const createTrx = await trxCollections.insertOne(newTrx);
+                const createTrx = await trxCollections.insertMany(newTrx);
                 if (!createTrx.acknowledged) {
                     return res.status(500).json({ error: 'Failed to create transaction' });
                 }
@@ -1048,6 +1074,12 @@ async function run() {
                     { userType: 'Admin' },
                     { $inc: { total_income: adminIncomeCalculation } }
                 );
+                // Update total trx
+                await totalTrxCreated.updateOne(
+                    {},
+                    { $inc: { total_created_transaction: parsedAmount }, }, { upsert: true }
+                );
+
                 if (updateAdminIncome.modifiedCount === 0) {
                     return res.status(500).json({ error: 'Failed to update admin account' });
                 }
