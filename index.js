@@ -547,8 +547,11 @@ async function run() {
         });
 
         // Complete CashIN
+
+
         app.post('/complete-cashIn', async (req, res) => {
             const { method, agent_name, agent_phone_number, user_name, user_phone_number, amount } = req.body;
+            console.log('hit')
 
             try {
                 // Get Agent
@@ -557,29 +560,51 @@ async function run() {
                     return res.status(404).json({ error: 'Agent not found' });
                 }
 
+                // Check if Agent has enough balance
+                const parsedAmount = parseFloat(amount);
+                if (verifyAgent.current_balance < parsedAmount) {
+                    return res.status(400).json({ error: 'Insufficient balance for agent' });
+                }
+
                 // Get Receiver
                 const verifyReceiver = await usersCollections.findOne({ phone_number: user_phone_number });
                 if (!verifyReceiver) {
                     return res.status(404).json({ error: 'Receiver not found' });
                 }
 
-                // Calculate Agent Balance and income minus form balance and add to income 1% of trx amount
-                const parsedAmount = parseFloat(amount);
+                // Calculate balances
                 const agentBalanceCalculation = verifyAgent.current_balance - parsedAmount;
                 const agentIncomeCalculation = verifyAgent.total_income + parsedAmount * 0.01;
-
-                // Calculate Receiver balance add amount to balance
-                const customerBalanceCalculation = verifyReceiver.current_balance + parsedAmount;
-
-                // Log the calculations for debugging
-                // console.log(agentBalanceCalculation, agentIncomeCalculation, customerBalanceCalculation);
+                const trx_id = uuidv4().slice(0, 10);
+                const trx_date = new Date();
 
                 // Create transaction object
-                const newTrx = { method, agent_name, agent_phone_number, user_name, user_phone_number, amount: parsedAmount, createdAt: new Date(), TrxID: uuidv4().slice(0, 10), };
+                const newTrx = [
+                    {
+                        method: "Agent_cash_in",
+                        agent_name,
+                        agent_phone_number,
+                        user_name,
+                        user_phone_number,
+                        amount: parsedAmount,
+                        createdAt: trx_date,
+                        TrxID: trx_id,
+                    },
+                    {
+                        method: "User_cash_received_from_agent",
+                        agent_name,
+                        agent_phone_number,
+                        user_name,
+                        user_phone_number,
+                        amount: parsedAmount,
+                        createdAt: trx_date,
+                        TrxID: trx_id,
+                    }
+                ];
                 console.log(newTrx);
 
                 // Insert transaction into the collection
-                const createTrx = await trxCollections.insertOne(newTrx);
+                const createTrx = await trxCollections.insertMany(newTrx);
                 if (!createTrx.acknowledged) {
                     return res.status(500).json({ error: 'Failed to create transaction' });
                 }
@@ -600,25 +625,30 @@ async function run() {
 
                 // Update Receiver Balance
                 const receiverAccountUpdate = await usersCollections.updateOne(
-                    { phone_number: receiver_phone_number },
+                    { phone_number: user_phone_number },
                     {
-                        $set: {
-                            current_balance: customerBalanceCalculation,
+                        $inc: {
+                            current_balance: parsedAmount,
                         }
                     }
+                );
+                await totalTrxCreated.updateOne(
+                    {},
+                    { $inc: { total_created_transaction: parsedAmount } }, { upsert: true }
                 );
                 if (receiverAccountUpdate.modifiedCount === 0) {
                     return res.status(500).json({ error: 'Failed to update receiver account' });
                 }
 
                 // Final success response
-                return res.status(200).json({ message: 'Transaction completed successfully' });
+                return res.status(200).json({ success: true, message: 'Transaction completed successfully' });
 
             } catch (error) {
-                console.error('Error in /complete-cashIn:', error);
+                console.error('Error in complete-cashIn:', error);
                 return res.status(500).json({ error: 'An error occurred while processing the transaction' });
             }
         });
+
 
         // Money Request
         app.post('/request-money-agent', async (req, res) => {
@@ -805,12 +835,36 @@ async function run() {
                 // Log the calculations for debugging
                 console.log(receiverBalanceCalculation, senderBalanceCalculation);
 
-                // Create transaction object
-                const newTrx = { method, sender_name, sender_phone_number, receiver_name, receiver_phone_number, amount: parsedAmount, createdAt: new Date(), trx_charge, TrxID: uuidv4().slice(0, 10), };
+                // Create transaction 2 object 
+                const trx_id = uuidv4().slice(0, 10);
+                const trx_time = new Date();
+                const newTrx = [
+                    {
+                        method,
+                        sender_name,
+                        sender_phone_number,
+                        receiver_name,
+                        receiver_phone_number,
+                        amount: parsedAmount,
+                        createdAt: trx_time,
+                        trx_charge,
+                        TrxID: trx_id,
+                    }, {
+                        method: 'receivedMoney',
+                        sender_name,
+                        sender_phone_number,
+                        receiver_name,
+                        receiver_phone_number,
+                        amount: parsedAmount,
+                        createdAt: trx_time,
+                        trx_charge: 0,
+                        TrxID: trx_id,
+                    }
+                ];
                 console.log(newTrx);
 
                 // Insert transaction into the collection
-                const createTrx = await trxCollections.insertOne(newTrx);
+                const createTrx = await trxCollections.insertMany(newTrx);
                 if (!createTrx.acknowledged) {
                     return res.status(500).json({ error: 'Failed to create transaction' });
                 }
@@ -837,6 +891,10 @@ async function run() {
                         }
                     }
                 );
+                await totalTrxCreated.updateOne(
+                    {},
+                    { $inc: { total_created_transaction: parsedAmount }, }, { upsert: true }
+                );
                 if (receiverAccountUpdate.modifiedCount === 0) {
                     return res.status(500).json({ error: 'Failed to update receiver account' });
                 }
@@ -852,7 +910,7 @@ async function run() {
                 return res.status(200).json({ success: true, message: 'Transaction completed successfully' });
 
             } catch (error) {
-                console.error('Error in /complete-cashIn:', error);
+                console.error('Error in complete-cashIn:', error);
                 return res.status(500).json({ error: 'An error occurred while processing the transaction' });
             }
         });
@@ -997,7 +1055,7 @@ async function run() {
                 return res.status(200).json({ success: true, message: 'Transaction completed successfully' });
 
             } catch (error) {
-                console.error('Error in /complete-cashIn:', error);
+                console.error('Error in complete-cashIn:', error);
                 return res.status(500).json({ error: 'An error occurred while processing the transaction' });
             }
         });
