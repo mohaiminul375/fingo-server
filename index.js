@@ -24,25 +24,26 @@ const client = new MongoClient(uri, {
     }
 });
 // Authentication middleware
-const authenticateUser = (req, res, next) => {
-    const token = req.headers.authorization?.split(" ")[1]; // Extract token from Authorization header
-    console.log(token)
-    if (!token) {
-        return res.status(401).json({ error: 'Access denied' });
-    }
 
-    try {
-        // Decode and verify the token
-        const verified = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = verified;
-        console.log(verified)
-
-        next();
-    } catch (err) {
-        res.status(403).json({ error: 'Unauthorized: Invalid token' });
-    }
-};
 async function run() {
+    const authenticateUser = (req, res, next) => {
+        const token = req.headers.authorization?.split(" ")[1]; // Extract token from Authorization header
+        console.log(token)
+        if (!token) {
+            return res.status(401).json({ error: 'Access denied' });
+        }
+
+        try {
+            // Decode and verify the token
+            const verified = jwt.verify(token, process.env.JWT_SECRET);
+            req.user = verified;
+            console.log(verified)
+
+            next();
+        } catch (err) {
+            res.status(403).json({ error: 'Unauthorized: Invalid token' });
+        }
+    };
     try {
         // DB collection 
         const usersCollections = client.db('fingo-mfs').collection('all-users');
@@ -365,21 +366,31 @@ async function run() {
                 if (!verifyAgent) {
                     return res.status(404).json({ message: "Agent not found" });
                 }
-
+                const trx_id = uuidv4().slice(0, 10)
+                const trx_time = new Date();
                 // Create Transaction
-                const createTrx = {
-                    TrxID: uuidv4().slice(0, 10),
+                const createTrx = [{
+                    TrxID: trx_id,
                     sender_name: 'Fingo-mfs',
                     sender_phone_number: 'Fingo-mfs@support',
                     agent_name,
                     agent_phone_number,
                     amount,
-                    method: 'Agent_cash_In',
-                    createdAt: new Date(),
-                };
+                    method: 'Agent_cash_in',
+                    createdAt: trx_time,
+                }, {
+                    TrxID: trx_id,
+                    sender_name: 'Fingo-mfs',
+                    sender_phone_number: 'Fingo-mfs@support',
+                    agent_name,
+                    agent_phone_number,
+                    amount,
+                    method: 'Agent_cash_send',
+                    createdAt: trx_time,
+                },]
 
-                const newTrx = await trxCollections.insertOne(createTrx);
-                if (!newTrx.acknowledged || !newTrx.insertedId) {
+                const newTrx = await trxCollections.insertMany(createTrx);
+                if (!newTrx.acknowledged || !newTrx.insertedCount) {
                     return res.status(500).json({ message: "Transaction creation failed" });
                 }
 
@@ -437,19 +448,31 @@ async function run() {
                 if (!verifyAgent) {
                     return res.status(404).json({ message: "Agent not found" });
                 }
+                const trx_id = uuidv4().slice(0, 10);
+                const createTime = new Date();
+                const createTrx = [
+                    {
+                        TrxID: trx_id,
+                        sender_name: 'Fingo-mfs',
+                        sender_phone_number: 'Fingo-mfs@support',
+                        agent_name: agent_name,
+                        agent_phone_number,
+                        amount: request_amount,
+                        method: 'Withdraw_agent_income_send',
+                        createdAt: createTime,
+                    },
+                    {
+                        TrxID: trx_id,
+                        sender_name: 'Fingo-mfs',
+                        sender_phone_number: 'Fingo-mfs@support',
+                        agent_name: agent_name,
+                        agent_phone_number,
+                        amount: request_amount,
+                        method: 'Withdraw_agent_income',
+                        createdAt: createTime,
+                    }]
 
-                const createTrx = {
-                    TrxID: uuidv4().slice(0, 10),
-                    sender_name: 'Fingo-mfs',
-                    sender_phone_number: 'Fingo-mfs@support',
-                    agent_name: agent_name,
-                    agent_phone_number,
-                    amount: request_amount,
-                    method: 'Withdraw_agent_income',
-                    createdAt: new Date(),
-                };
-
-                const newTrx = await trxCollections.insertOne(createTrx);
+                const newTrx = await trxCollections.insertMany(createTrx);
                 if (!newTrx.acknowledged) {
                     return res.status(500).json({ message: "Transaction creation failed" });
                 }
@@ -1130,7 +1153,7 @@ async function run() {
             }
         });
 
-        app.get('/all-transaction-agent/:phone_number', async (req, res) => {
+        app.get('/all-transactions-agent/:phone_number', async (req, res) => {
             try {
                 const phone_number = req.params.phone_number;
 
@@ -1142,7 +1165,7 @@ async function run() {
                         return res.status(404).send({ message: 'User not found' });
                     }
 
-                    if (isVerified.userType !== 'Agent' && isVerified.account_status !== 'Active') {
+                    if (isVerified.userType !== 'Agent' || isVerified.account_status !== 'Active') {
                         return res.status(403).send({ message: 'Unauthorized access' });
                     }
                 } catch (error) {
@@ -1150,23 +1173,24 @@ async function run() {
                     return res.status(500).send({ message: 'Internal Server Error' });
                 }
 
-                // Query transactions related to the phone number
+                // Query transactions specific to agents
                 const query = {
                     $or: [
-                        { user_phone_number: phone_number },
-                        { receiver_phone_number: phone_number },
-                        { sender_phone_number: phone_number },
-                        { agent_phone_number: phone_number }
+                        { agent_phone_number: phone_number, method: "Agent_cash_in" },
+                        { agent_phone_number: phone_number, method: "Agent_Cash_Out" },
+                        { agent_phone_number: phone_number, method: "Withdraw_agent_income" },
+                        { receiver_phone_number: phone_number, method: "New_user_bonus_receive" },
                     ]
                 };
 
-                const result = await trxCollections.find(query).sort({ createdAt: -1 }).toArray();
+                const result = await trxCollections.find(query).sort({ createdAt: -1 }).limit(100).toArray();
                 res.status(200).send(result);
             } catch (error) {
                 console.error('Transaction fetch error:', error);
                 res.status(500).send({ message: 'Internal Server Error' });
             }
         });
+
 
 
 
