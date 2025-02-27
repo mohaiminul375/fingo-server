@@ -1092,10 +1092,9 @@ async function run() {
                 return res.status(500).json({ error: 'An error occurred while processing the transaction' });
             }
         });
-        app.get('/all-transaction-user/:phone_number', async (req, res) => {
+        app.get('/all-transactions-user/:phone_number', async (req, res) => {
             try {
                 const phone_number = req.params.phone_number;
-
                 // Check if user exists and is authorized
                 try {
                     const isVerified = await usersCollections.findOne({ phone_number });
@@ -1104,7 +1103,7 @@ async function run() {
                         return res.status(404).send({ message: 'User not found' });
                     }
 
-                    if (isVerified.userType !== 'User' && isVerified.account_status !== 'Active') {
+                    if (isVerified.userType !== 'User' || isVerified.account_status !== 'Active') {
                         return res.status(403).send({ message: 'Unauthorized access' });
                     }
                 } catch (error) {
@@ -1115,19 +1114,22 @@ async function run() {
                 // Query transactions related to the phone number
                 const query = {
                     $or: [
-                        { user_phone_number: phone_number },
-                        { receiver_phone_number: phone_number },
-                        { sender_phone_number: phone_number }
+                        { sender_phone_number: phone_number, method: "user_send_money" },
+                        { receiver_phone_number: phone_number, method: "user_received_money" },
+                        { receiver_phone_number: phone_number, method: "New_user_bonus_receive" },
+                        { user_phone_number: phone_number, method: "Agent_Cash_Out" },
+                        { user_phone_number: phone_number, method: "Agent_cash_in" }
                     ]
                 };
 
-                const result = await trxCollections.find(query).sort({ createdAt: -1 }).toArray();
+                const result = await trxCollections.find(query).limit(100).sort({ createdAt: -1 }).toArray();
                 res.status(200).send(result);
             } catch (error) {
                 console.error('Transaction fetch error:', error);
                 res.status(500).send({ message: 'Internal Server Error' });
             }
         });
+
         app.get('/all-transaction-agent/:phone_number', async (req, res) => {
             try {
                 const phone_number = req.params.phone_number;
