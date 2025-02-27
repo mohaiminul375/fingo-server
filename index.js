@@ -891,6 +891,7 @@ async function run() {
                         }
                     }
                 );
+                // tota trx
                 await totalTrxCreated.updateOne(
                     {},
                     { $inc: { total_created_transaction: parsedAmount }, }, { upsert: true }
@@ -901,7 +902,7 @@ async function run() {
                 // updateAdmin account add will trx_charge
                 const updateAdminIncome = await usersCollections.updateOne(
                     { userType: 'Admin' },
-                    { $inc: { total_income: trx_charge } }
+                    { $inc: { total_income: 5 } }
                 );
                 if (updateAdminIncome.modifiedCount === 0) {
                     return res.status(500).json({ error: 'Failed to update admin account' });
